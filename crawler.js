@@ -1,101 +1,122 @@
 var util = require( "util" );
-var request = require( "request" );
-var fs = require( "fs" );
 var http = require( "http" );
-var path = require( "path" );
+var fs = require( "fs" );
 
-var imgRegExp = /(https?:\/\/)[a-zA-Z0-9_-]+(\.[a-zA-Z0-9]+)+(:[0-9]+)?(\/[a-zA-Z0-9_%?/:&.=@#\-()]*)*((.png)|(.jpg)|(.jpeg)|(.bmp))/gi;
-var urlRegExp = /(https?:\/\/)[a-zA-Z0-9_-]+(\.[a-zA-Z0-9]+)+(:[0-9]+)?(\/[a-zA-Z0-9_%?/:&.=@#\-()]*)*\/[a-zA-Z0-9_%?/:&=@#\-()]*/gi;
-
+var urlRegExp = /http:\/\/[a-zA-Z0-9_-]+(\.[a-zA-Z0-9]+)+(:[0-9]+)?(\/[a-zA-Z0-9_%/:.=@#\-()]*)*(\?[a-zA-Z0-9_%/:/@#\-()]+=[a-zA-Z0-9_%/:/@#\-()]+)*/gi;
 var urlQueue = new Array();
-//urlQueue.push( 'http://www.google.co.kr/search?q=아이유' );
-urlQueue.push( 'http://www.google.co.kr/search?q=아이유&tbm=isch' );
+var maxLoadings = 5;
+var numLoadings = 0;
+var urlHistory = new Array();
 
-crawl();
+startCrawling( "http://zzo.co.kr/907" );
 
-function crawl()
+function startCrawling( startURL )
 {
-	if( urlQueue.length == 0 )
+	urlQueue.push( startURL );
+	setInterval( load, 10 );
+}
+
+function load()
+{
+	// debug( numLoadings + " : " + maxLoadings );
+	if( numLoadings < maxLoadings && urlQueue.length > 0 )
+		loadURL( urlQueue.shift() );
+}
+
+function loadURL( url )
+{
+	if( !url ) return;
+	
+	log( "[URL] " + url );
+	
+	var reqURL = require( "url" ).parse( url );
+	var options = {
+		host: reqURL.hostname,
+		path: reqURL.pathname,
+		port: 80,
+		dest: "./imgs/" + reqURL.pathname.split( "/" ).pop()
+	};
+	
+	numLoadings ++;
+	
+	urlHistory.push( url );
+	
+	http.get( options, function( data )
 	{
-		util.puts( "Finish" );
-		process.exit( 0 );
-	}
-	
-	var url = urlQueue.shift();
-	
-	util.puts( "(" + urlQueue.length + ") " + url );
-	
-	request( url, function( error, response, body )
-	{
-		if( error || !body )
-		{
-			crawl();
-			return;
-		}
+		numLoadings --;
 		
-		var imgs = body.match( imgRegExp ) || new Array();
-		for( var i = 0; i < imgs.length; i++ )
+		var contentType = data.headers['content-type'];
+		if( !contentType ) return;
+		
+		// Loaded image
+		if( contentType.indexOf( "image" ) > -1 )
 		{
-			var imgURL = require( "url" ).parse( imgs[i] );
+			if( data.headers['content-length'] < 50000 )
+				return;
 			
-			/*var fileName = "./imgs/" + imgURL.pathname.split( "/" ).pop();
-			path.exists( fileName, function( exists )
+			var imgData = "";
+			
+			data.setEncoding( "binary" );
+			data.on( "data", function( chunk )
 			{
-				if( exists )
-				{
-					util.puts( "EXISTS!!!" );
-					fileName += "(2)";
-				}
-			} );*/
+				imgData += chunk;
+			} );
 			
-			var options = {
-				host: imgURL.hostname,
-				path: imgURL.pathname,
-				port: 80,
-				dest: "./imgs/" + imgURL.pathname.split( "/" ).pop()
-			};
-			
-			http.get( options, function( data )
+			data.on( "end", function()
 			{
-				if( data.headers['content-length'] < 50000 ) return;
+				log( "[IMAGE] " + options.dest );
+				fs.writeFile( options.dest, imgData, "binary" );
 				
-				data.setEncoding( "binary" );
-				var imgData = "";
-				data.on( "data", function( chunk )
-				{
-					imgData += chunk;
-				} );
-				
-				data.on( "end", function()
-				{
-					fs.writeFile( options.dest, imgData, "binary" );
-				} );
+				numLoadings --;
 			} );
 		}
 		
-		var urls = body.match( urlRegExp ) || new Array;
-		for( var i = 0; i < urls.length; i++ )
+		// Loaded html page
+		else if( contentType.indexOf( "text/html" ) > -1 )
 		{
-			urlQueue.push( urls[i] );
+			var html = "";
+			
+			data.on( "data", function( chunk )
+			{
+				html += chunk;
+			} );
+			
+			data.on( "end", function()
+			{
+				parseHTML( html );
+			} );
 		}
-		
-		crawl();
+	} ).on( "error", function( e )
+	{
+		log( "[ERROR] " + e );
+		numLoadings --;
 	} );
 }
 
-/*function getCurrentDate()
+function parseHTML( html )
 {
-	var date = new Date();
-	var year = date.getFullYear();
-	var month = date.getMonth() + 1;
-	if( month < 10 ) month = "0" + month;
-	var day = date.getDate();
-	if( day < 10 ) day = "0" + day;
-	var hours = date.getHours();
-	if( hours < 10 ) hours = "0" + hours;
-	var minutes = date.getMinutes();
-	if( minutes < 10 ) minutes = "0" + minutes;
-	var seconds = date.getSeconds();
+	var urls = html.match( urlRegExp );
+	if( !urls ) return;
 	
-	return String( year ) + month + day + hours + minutes + seconds;
-}*/
+	for( var i = 0; i < urls.length; i++ )
+	{
+		if( urlHistory.indexOf( urls[i] ) == -1 )
+			urlQueue.push( urls[i] );
+	}
+}
+
+function log( message )
+{
+	fs.createWriteStream( "./log", {
+	    flags: "a",
+	    encoding: "UTF-8",
+	    mode: 0666
+	} ).write( message + "\n" );
+	
+	util.puts( message );
+}
+
+function debug( object )
+{
+	util.debug( util.inspect( object ) );
+}
