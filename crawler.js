@@ -2,18 +2,32 @@ var util = require( "util" );
 var http = require( "http" );
 var fs = require( "fs" );
 
-var urlRegExp = /http:\/\/[a-zA-Z0-9_-]+(\.[a-zA-Z0-9]+)+(:[0-9]+)?(\/[a-zA-Z0-9_%/:.=@#\-()]*)*(\?[a-zA-Z0-9_%/:/@#\-()]+=[a-zA-Z0-9_%/:/@#\-()]+)*/gi;
+//var urlRegExp = /http:\/\/[a-zA-Z0-9_-]+(\.[a-zA-Z0-9]+)+(:[0-9]+)?(\/[a-zA-Z0-9_%/:.=@#\-()]*)*(\?[a-zA-Z0-9_%/:/@#\-()]+=[a-zA-Z0-9_%/:/@#\-()]+)*/gi;
+var urlRegExp = /(http:\/\/[a-zA-Z0-9_-]+(\.[a-zA-Z0-9]+)+(:[0-9]+)?(\/[a-zA-Z0-9_%/:.=@#\-()]*)*(\?[a-zA-Z0-9_%/:/@#\-()]+=[a-zA-Z0-9_%/:/@#\-()]+)*)|(\.?(\/[a-zA-Z0-9_%/=@#\-]+){2,})/gi;
 var urlQueue = new Array();
 var maxLoadings = 5;
 var numLoadings = 0;
+var requestInterval = 100;
+var imgMinSize = 50000;
+var imgMaxSize = 0;
 var urlHistory = new Array();
+var logStream = fs.createWriteStream( "./log", {flags: "a", encoding: "UTF-8", mode: 0666} );
 
-startCrawling( "http://zzo.co.kr/907" );
+log( ":: Image Crawler v1.0.0 by. Xoul ::" );
 
-function startCrawling( startURL )
+var firstURL = process.argv[2];
+if( !firstURL )
 {
-	urlQueue.push( startURL );
-	setInterval( load, 10 );
+	log( "[ERROR] usage : node crawler.js FIRST_URL" );
+	process.exit( 0 );
+}
+
+startCrawling( firstURL );
+
+function startCrawling( firstURL )
+{
+	urlQueue.push( firstURL );
+	setInterval( load, requestInterval );
 }
 
 function load()
@@ -33,9 +47,10 @@ function loadURL( url )
 	var options = {
 		host: reqURL.hostname,
 		path: reqURL.pathname,
-		port: 80,
-		dest: "./imgs/" + reqURL.pathname.split( "/" ).pop()
+		port: 80
 	};
+	
+	var fileName = "./imgs/" + reqURL.pathname.split( "/" ).pop();
 	
 	numLoadings ++;
 	
@@ -51,7 +66,8 @@ function loadURL( url )
 		// Loaded image
 		if( contentType.indexOf( "image" ) > -1 )
 		{
-			if( data.headers['content-length'] < 50000 )
+			// 50KB
+			if( data.headers['content-length'] < imgMinSize )
 				return;
 			
 			var imgData = "";
@@ -64,8 +80,8 @@ function loadURL( url )
 			
 			data.on( "end", function()
 			{
-				log( "[IMAGE] " + options.dest );
-				fs.writeFile( options.dest, imgData, "binary" );
+				log( "[IMAGE] " + fileName );
+				fs.writeFile( fileName, imgData, "binary" );
 				
 				numLoadings --;
 			} );
@@ -83,7 +99,7 @@ function loadURL( url )
 			
 			data.on( "end", function()
 			{
-				parseHTML( html );
+				parseHTML( html, options.host, options.path );
 			} );
 		}
 	} ).on( "error", function( e )
@@ -93,26 +109,34 @@ function loadURL( url )
 	} );
 }
 
-function parseHTML( html )
+function parseHTML( html, host, path )
 {
 	var urls = html.match( urlRegExp );
 	if( !urls ) return;
 	
 	for( var i = 0; i < urls.length; i++ )
 	{
-		if( urlHistory.indexOf( urls[i] ) == -1 )
-			urlQueue.push( urls[i] );
+		var url = urls[i];
+		var firstChar = url.substr( 0, 1 );
+		
+		if( firstChar == "." )
+		{
+			url = "http://" + host + path + url.substring( 1, url.length );
+		}
+		else if( firstChar == "/" )
+		{
+			url = "http://" + host + url;
+		}
+		
+		if( urlHistory.indexOf( url ) == -1 )
+			urlQueue.push( url );
 	}
+	return;
 }
 
 function log( message )
 {
-	fs.createWriteStream( "./log", {
-	    flags: "a",
-	    encoding: "UTF-8",
-	    mode: 0666
-	} ).write( message + "\n" );
-	
+	logStream.write( message + "\n" );
 	util.puts( message );
 }
 
