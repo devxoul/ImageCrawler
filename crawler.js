@@ -2,16 +2,14 @@ var util = require( "util" );
 var http = require( "http" );
 var fs = require( "fs" );
 
-//var urlRegExp = /http:\/\/[a-zA-Z0-9_-]+(\.[a-zA-Z0-9]+)+(:[0-9]+)?(\/[a-zA-Z0-9_%/:.=@#\-()]*)*(\?[a-zA-Z0-9_%/:/@#\-()]+=[a-zA-Z0-9_%/:/@#\-()]+)*/gi;
-var urlRegExp = /(http:\/\/[a-zA-Z0-9_-]+(\.[a-zA-Z0-9]+)+(:[0-9]+)?(\/[a-zA-Z0-9_%/:.=@#\-()]*)*(\?[a-zA-Z0-9_%/:/@#\-()]+=[a-zA-Z0-9_%/:/@#\-()]+)*)|(\.?(\/[a-zA-Z0-9_%/=@#\-]+){2,})/gi;
 var urlQueue = new Array();
 var maxLoadings = 5;
 var numLoadings = 0;
-var requestInterval = 100;
+var requestInterval = 10;
 var imgMinSize = 50000;
 var imgMaxSize = 0;
 var urlHistory = new Array();
-var logStream = fs.createWriteStream( "./log", {flags: "a", encoding: "UTF-8", mode: 0666} );
+var logStream = fs.createWriteStream( "./log.txt", {flags: "a", encoding: "UTF-8", mode: 0666} );
 
 log( ":: Image Crawler v1.0.0 by. Xoul ::" );
 
@@ -50,7 +48,8 @@ function loadURL( url )
 		port: 80
 	};
 	
-	var fileName = "./imgs/" + reqURL.pathname.split( "/" ).pop();
+	if( !reqURL.pathname ) return;
+	var fileName = "./imgs/" + reqURL.pathname.split( "/" ).pop() || reqURL.pathname.split( "/" ).pop();
 	
 	numLoadings ++;
 	
@@ -62,6 +61,13 @@ function loadURL( url )
 		
 		var contentType = data.headers['content-type'];
 		if( !contentType ) return;
+		
+		if( fileName.indexOf( ".", 7 ) == -1 )
+		{
+			var extension = contentType.split( "/" )[1];
+			if( extension == "jpeg" ) extension = "jpg";
+			fileName += "." + extension;
+		}
 		
 		// Loaded image
 		if( contentType.indexOf( "image" ) > -1 )
@@ -111,27 +117,26 @@ function loadURL( url )
 
 function parseHTML( html, host, path )
 {
-	var urls = html.match( urlRegExp );
+	var urls = html.split( /(src|href)=(\"|\')/i );
 	if( !urls ) return;
 	
-	for( var i = 0; i < urls.length; i++ )
+	for( var i = 1; i < urls.length; i++ )
 	{
-		var url = urls[i];
-		var firstChar = url.substr( 0, 1 );
+		var url = urls[i].split( /(\"|\')/ )[0];
+		if( url == "src" || url == "href" || url =="" ) continue;
+		if( url.indexOf( ".js" ) > -1 || url.indexOf( ".css" ) > -1 ) continue;
+		if( url.indexOf( ".swf" ) > -1 || url.indexOf( ".css" ) > -1 ) continue;
+		if( url.charAt( 0 ) == "#" ) continue;
 		
-		if( firstChar == "." )
-		{
-			url = "http://" + host + path + url.substring( 1, url.length );
-		}
-		else if( firstChar == "/" )
-		{
+		if( url.charAt( 0 ) == "/" )
 			url = "http://" + host + url;
-		}
+		
+		// debug( url );
+		// continue;
 		
 		if( urlHistory.indexOf( url ) == -1 )
 			urlQueue.push( url );
 	}
-	return;
 }
 
 function log( message )
