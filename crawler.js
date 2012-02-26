@@ -2,28 +2,47 @@ var util = require( "util" );
 var http = require( "http" );
 var fs = require( "fs" );
 
-var urlQueue = new Array();
-var maxLoadings = 5;
-var numLoadings = 0;
-var requestInterval = 10;
-var imgMinSize = 50000;
-var imgMaxSize = 0;
-var urlHistory = new Array();
-var logStream = fs.createWriteStream( "./log.txt", {flags: "a", encoding: "UTF-8", mode: 0666} );
 
 log( ":: Image Crawler v1.0.0 by. Xoul ::" );
 
-var firstURL = process.argv[2];
-if( !firstURL )
+if( getOption( "-h" ) || getOption( "--help" ) )
 {
-	log( "[ERROR] usage : node crawler.js FIRST_URL" );
+	log( "USAGE : node crawler --url URL [--options]" );
+	log( "--url : 크롤링을 시작할 첫 URL." );
+	log( "--max-threads : 크롤러 스레드 개수. 기본값 10." )
+	log( "--interval : 로딩 간격 (ms). 기본값 10." );
+	log( "--min-size : 이미지 최소 사이즈 (bytes). 기본값 0." );
+	log( "--max-size : 이미지 최대 사이즈 (bytes). 0일 경우에는 제한 없음. 기본값 0." );
+	log( "--save : 이미지 저장 경로. 존재하는 디렉토리여야함. 기본값 ./imgs" );
+	log( "--log : 로그파일 저장 경로. 기본값 ./log.txt" );
+	log( "-h | --help : 현재 도움말 보기." )
 	process.exit( 0 );
 }
+
+var firstURL = getOption( "--url" );
+if( !firstURL )
+{
+	log( "[ERROR] Invalid URL. -h or --help to see usage." );
+	process.exit( 0 );
+}
+
+// Options
+var maxLoadings = parseInt( getOption( "--max-threads" ) ) || 10;
+var requestInterval = parseInt( getOption( "--interval" ) ) || 10;
+var imgMinSize = parseInt( getOption( "--min-size" ) ) || 0;
+var imgMaxSize = parseInt( getOption( "--max-size" ) ) || 0;
+var saveDirectory = getOption( "--save" ) || "./imgs/";
+var logStream = fs.createWriteStream( getOption( "--save" ) || "./log.txt", {flags: "a", encoding: "UTF-8", mode: 0666} );
+
+var numLoadings = 0;
+var urlQueue = new Array();
+var urlHistory = new Array();
 
 startCrawling( firstURL );
 
 function startCrawling( firstURL )
 {
+	log( "Crawling start with url : " + firstURL );
 	urlQueue.push( firstURL );
 	setInterval( load, requestInterval );
 }
@@ -49,7 +68,7 @@ function loadURL( url )
 	};
 	
 	if( !reqURL.pathname ) return;
-	var fileName = "./imgs/" + reqURL.pathname.split( "/" ).pop() || reqURL.pathname.split( "/" ).pop();
+	var fileName = saveDirectory + "/" + reqURL.pathname.split( "/" ).pop() || reqURL.pathname.split( "/" ).pop();
 	
 	numLoadings ++;
 	
@@ -72,9 +91,9 @@ function loadURL( url )
 		// Loaded image
 		if( contentType.indexOf( "image" ) > -1 )
 		{
-			// 50KB
-			if( data.headers['content-length'] < imgMinSize )
-				return;
+			var contentLength = parseInt( data.headers['content-length'] );
+			if( imgMaxSize > 0 && contentLength > imgMaxSize ) return;
+			if( contentLength < imgMinSize ) return;
 			
 			var imgData = "";
 			
@@ -141,11 +160,27 @@ function parseHTML( html, host, path )
 
 function log( message )
 {
-	logStream.write( message + "\n" );
+	//logStream.write( message + "\n" );
 	util.puts( message );
 }
 
 function debug( object )
 {
 	util.debug( util.inspect( object ) );
+}
+
+function getOption( option )
+{
+	for( var i = 0; i < process.argv.length; i++ )
+	{
+		if( process.argv[i] == option )
+		{
+			if( option == "-h" || option == "--help" )
+				return true;
+			
+			return process.argv[i + 1];
+		}
+	}
+	
+	return false;
 }
